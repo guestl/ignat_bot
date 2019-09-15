@@ -1,0 +1,40 @@
+Создать БД
+
+botadmins
+chat_id - signed integer
+user_id - signed integer
+
+CREATE TABLE botadmins (
+    rec_id serial PRIMARY KEY,
+    chat_id int NOT NULL,
+    user_id int NOT NULL
+    );
+
+users
+user_id - signed integer
+chat_id - signed integer
+is_trusted - bit (default 0)
+
+CREATE TABLE users (
+    rec_id serial PRIMARY KEY,
+    chat_id int NOT NULL,
+    user_id int NOT NULL,
+    is_trusted boolean DEFAULT false
+    );
+
+blackwords
+chat_id - signed integer
+blacked_word - varchar(32)
+
+CREATE TABLE blackwords (
+    rec_id serial PRIMARY KEY,
+    chat_id int NOT NULL,
+    blacked_word varchar(32) NOT NULL
+    );
+
+перехват сообщения.
+если в сообщении есть new_chat_members, добавить их в базу с is_trusted = 0
+
+если в сообщении from = user_id & is_trusted = 0 & в text есть ссылка или blackwords, то deleteMessage & kickChatMember и сообщение админу бота
+
+если в сообщении from = user_id & is_trusted = 0 & в text нет ссылки или blackwords, то istrusted = 1

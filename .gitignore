@@ -39,3 +39,6 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+src/config.json
+src/sftp-config.json
+src/webhook curl.txt
