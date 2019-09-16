@@ -15,7 +15,7 @@ user_id - signed integer
 chat_id - signed integer
 is_trusted - bit (default 0)
 
-CREATE TABLE users (
+CREATE TABLE ignated_chat_users (
     rec_id serial PRIMARY KEY,
     chat_id int NOT NULL,
     user_id int NOT NULL,
@@ -33,8 +33,9 @@ CREATE TABLE blackwords (
     );
 
 перехват сообщения.
-если в сообщении есть new_chat_members, добавить их в базу с is_trusted = 0
 
-если в сообщении from = user_id & is_trusted = 0 & в text есть ссылка или blackwords, то deleteMessage & kickChatMember и сообщение админу бота
+если есть сообщение new_chat_members и пользователей нет в бд для данного чата, то добавить в бд с is_trusted = 0
 
-если в сообщении from = user_id & is_trusted = 0 & в text нет ссылки или blackwords, то istrusted = 1
+если сообщение = сообщение с текстом, то если from = user_id & is_trusted = 0 & в text есть ссылка или blackwords, то deleteMessage & kickChatMember и сообщение админу бота
+
+если сообщение = сообщение с текстом, то если from = user_id & is_trusted = 0 & в text нет ссылки или blackwords, то istrusted = 1
