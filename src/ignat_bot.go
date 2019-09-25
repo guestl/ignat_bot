@@ -6,7 +6,7 @@ import (
     "os"
     "encoding/json"
 	"database/sql"
-	_ "github.com/lib/pq"
+	 _ "github.com/mattn/go-sqlite3"
 )
 
 type Config struct {
@@ -45,26 +45,17 @@ func main() {
 	updateFromBot := tgbotapi.NewUpdate(0)
 	updateFromBot.Timeout = 60
 
-	connectionString := "user=ignat_db password=ignatStrongPassword dbname=ignat_db"
-	ignatDB, err := sql.Open("postgres", connectionString)
+	connectionString := "./db/ignat_db.db"
+	ignatDB, err := sql.Open("sqlite3", connectionString)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer ignatDB.Close()
 
-	isTrustedQuery, err := ignatDB.Prepare("select is_trusted from ignated_chat_users where chat_id = $1 and user_id = $2")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer isTrustedQuery.Close()
+	isTrustedQuery := "select is_trusted from ignated_chat_users where chat_id = $1 and user_id = $2"
 	var isTrustedUser bool
 
-	addUntrustedQuery, err := ignatDB.Prepare("insert into ignated_chat_users (chat_id, user_id) values ($1, $2)")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer addUntrustedQuery.Close()
-
+	addUntrustedQuery := "insert into ignated_chat_users (chat_id, user_id) values ($1, $2)"
 
 	updates, err := bot.GetUpdatesChan(updateFromBot)
 
@@ -94,7 +85,7 @@ func main() {
 //			}
 //		}
 
-		var isSpamer bool = false
+		var isLinkInMessage bool = false
 		isTrustedUser = false
 
 /*
@@ -120,7 +111,7 @@ func main() {
 			if update.Message.Entities != nil {
 				for _, messageEntity := range *update.Message.Entities {
 						if (messageEntity.IsUrl() || messageEntity.IsTextLink()){
-							isSpamer = true
+							isLinkInMessage = true
 						}
 				}			
 			}
@@ -129,16 +120,30 @@ func main() {
 			if update.Message.CaptionEntities != nil {
 				for _, captionEntity := range *update.Message.CaptionEntities {
 						if (captionEntity.IsUrl() || captionEntity.IsTextLink()){
-							isSpamer = true
+							isLinkInMessage = true
 						}
 				}			
 			}
 
-			if(isSpamer){
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-				msg.Text = "нельзя ссылку давать"
-				msg.ReplyToMessageID = update.Message.MessageID
-				bot.Send(msg)
+			if(isLinkInMessage){
+				log.Println("check is user in db")
+				// проверка, есть ли вообще
+				log.Println(update.Message.From.ID)
+				isTrustedRows := ignatDB.QueryRow(isTrustedQuery, update.Message.Chat.ID, update.Message.From.ID)
+				err = isTrustedRows.Scan(&isTrustedUser)
+				switch err{
+				case sql.ErrNoRows:
+					isTrustedUser = false
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+					msg.Text = "нельзя ссылку давать"
+					msg.ReplyToMessageID = update.Message.MessageID
+					bot.Send(msg)
+					log.Println("sql.ErrNoRows case")
+				default:
+					log.Println("default case")
+					log.Fatal(err)
+				}
+				log.Println("check finished")
 			}			
 		}
 
@@ -152,29 +157,22 @@ func main() {
 
 				log.Println("check is user in db")
 				// проверка, есть ли вообще
-				isTrustedRows, err := isTrustedQuery.Query(update.Message.Chat.ID, newUserId.ID)
-				if err != nil {
+				isTrustedRows := ignatDB.QueryRow(isTrustedQuery, update.Message.Chat.ID, newUserId.ID)
+				err = isTrustedRows.Scan(&isTrustedUser)
+				switch err{
+				case sql.ErrNoRows:
+					isTrustedUser = false
+					log.Printf("add to chat %s new userid %s", update.Message.Chat.ID, newUserId.ID)
+					result, err := ignatDB.Exec(addUntrustedQuery, update.Message.Chat.ID, newUserId.ID)
+					if err != nil {
+						log.Fatal(err)
+					}
+					log.Println("theoretically added")
+					log.Println(result.RowsAffected())  // количество обновленных строк
+				default:
 					log.Fatal(err)
 				}
 				log.Println("check finished")
-				log.Printf("isTrustedRows is %s", isTrustedRows)
-				
-				// если проверка вернула ErrNoRows -> юзера нет в бд, запишем как антраста
-				for isTrustedRows.Next() {
-					err := isTrustedRows.Scan(&isTrustedUser)
-					if err != nil {
-						log.Fatal(err)
-						if err == sql.ErrNoRows {
-							log.Printf("add to chat %s new userid %s", update.Message.Chat.ID, newUserId.ID)
-							_, err := addUntrustedQuery.Exec(update.Message.Chat.ID, newUserId.ID)
-							if err != nil {
-								log.Fatal(err)
-							log.Println("theoritically added")
-							}
-						}
-					}
-					log.Printf("err in Scan is %s", err)
-				}
 			}
 		}
 	}
