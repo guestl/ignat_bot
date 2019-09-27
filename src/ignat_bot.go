@@ -16,20 +16,27 @@ type Config struct {
 
 
 func main() {
+	const botTimeOutValue int = 60
+	const configJSONFileName string = "config.json" 
+	const logOutputFileName string = "ignat_logfile.log"
+	const cooldowndForBannedUser int64 = 45
+
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	f, log_err := os.OpenFile("ignat_logfile.log", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
-	if log_err != nil {
-    	log.Fatalf("error opening file: %v", log_err)
-	}
-	defer f.Close()
+	LogOutputFile, err := os.OpenFile(logOutputFileName, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666) 
+	    if err != nil { 
+	    log.Fatalf("error opening file: %v", err) 
+	    }
 
-	log.SetOutput(f)
+	defer LogOutputFile.Close()
 
-    file, _ := os.Open("config.json")
-    decoder := json.NewDecoder(file)
+	log.SetOutput(LogOutputFile) 
+
+
+    configFile, _ := os.Open(configJSONFileName)
+    decoder := json.NewDecoder(configFile)
     configuration := Config{}
-    err := decoder.Decode(&configuration)
+    err = decoder.Decode(&configuration)
     if err != nil {
        log.Panic(err)
     }
@@ -44,7 +51,7 @@ func main() {
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
 	updateFromBot := tgbotapi.NewUpdate(0)
-	updateFromBot.Timeout = 60
+	updateFromBot.Timeout = botTimeOutValue
 
 	connectionString := "./db/ignat_db.db"
 	ignatDB, err := sql.Open("sqlite3", connectionString)
@@ -53,9 +60,9 @@ func main() {
 	}
 	defer ignatDB.Close()
 
-	//isTrustedQuery := "select is_trusted from ignated_chat_users where chat_id = $1 and user_id = $2"
 	var isTrustedUser, isExist bool
 	var isLinkInMessage bool = false
+	var rowsAffected int64
 
 	addUntrustedQuery := "insert into ignated_chat_users (chat_id, user_id, is_trusted) values ($1, $2, 1)"
 	addTrustedQuery := "insert into ignated_chat_users (chat_id, user_id) values ($1, $2)"
@@ -79,7 +86,6 @@ func main() {
 			log.Println(err)
 			continue
 		}
-//		log.Println(chatId, userId,  isTrustedUser)
 		if mapOfAllUsersInDatabase[chatId] == nil{
 			mapOfAllUsersInDatabase[chatId] = make(map[int]bool)
 		}
@@ -95,8 +101,6 @@ func main() {
 
 		log.Printf("from [%s] was message.Text: %s", update.Message.From.UserName, update.Message.Text)
 		log.Printf("from [%s] was message.Caption: %s", update.Message.From.UserName, update.Message.Caption)
-		log.Printf("from [%s] was message: %s", update.Message.From.UserName, update.Message)
-//		log.Printf("from [%s] was message: %s", update.Message.From.UserName, update.Message.Entities)
 
 //		if update.Message.IsCommand() {
 //			switch update.Message.Command() {
@@ -118,6 +122,8 @@ func main() {
 		isLinkInMessage = false
 		isTrustedUser, isExist = mapOfAllUsersInDatabase[update.Message.Chat.ID][update.Message.From.ID]
 
+		log.Printf("isTrustedUser = %t, isExist = %t", isTrustedUser, isExist)
+
 		if isExist && isTrustedUser == false {
 			if update.Message.Entities != nil {
 				for _, messageEntity := range *update.Message.Entities {
@@ -138,47 +144,47 @@ func main() {
 			if(isLinkInMessage){
 				log.Printf("we have a link from untrusted user %s %s %s", update.Message.From.FirstName, update.Message.From.LastName, update.Message.From.UserName)
 				bot.DeleteMessage(tgbotapi.DeleteMessageConfig{update.Message.Chat.ID, update.Message.MessageID})
-				log.Printf("message with link from %s was deleted ", update.Message.From.ID)
-				bot.KickChatMember(tgbotapi.KickChatMemberConfig{tgbotapi.ChatMemberConfig{update.Message.Chat.ID, "", "", update.Message.From.ID}, time.Now().Unix() + 45})  
+				log.Printf("message with link from %d was deleted ", update.Message.From.ID)
+				bot.KickChatMember(tgbotapi.KickChatMemberConfig{tgbotapi.ChatMemberConfig{update.Message.Chat.ID, "", "", update.Message.From.ID}, time.Now().Unix() + cooldowndForBannedUser})  
 
 			} else{
 				isTrustedUser = true
-				log.Println("We have a message with no link from untrusted user. Let's update the user as trusted")
-				log.Printf("update in chat %s userid %s", update.Message.Chat.ID, update.Message.From.ID)
+				log.Printf("We have a message with no link from untrusted user. Let's update the user as trusted")
+				log.Printf("update in chat %d userid %d", update.Message.Chat.ID, update.Message.From.ID)
 				result, err := ignatDB.Exec(updateTrustedQuery, update.Message.Chat.ID, update.Message.From.ID)
 				if err != nil {
 					log.Fatal(err)
 				}
+				rowsAffected, _ = result.RowsAffected()
 
 				if mapOfAllUsersInDatabase[update.Message.Chat.ID] == nil{
 					mapOfAllUsersInDatabase[update.Message.Chat.ID] = make(map[int]bool)
 				}
 				mapOfAllUsersInDatabase[update.Message.Chat.ID][update.Message.From.ID] = isTrustedUser
 
-				log.Println("theoretically user updated")
-				log.Println(result.RowsAffected())  // количество обновленных строк
+				log.Printf("theoretically user updated. amount of affected rows is ", rowsAffected)
 				log.Println(mapOfAllUsersInDatabase)
 
 			}
 
 		}else if isExist == false && update.Message.NewChatMembers ==nil {
-			// ситуация, когда пользователь был в чате ДО того, как там появился бот
-			// добавляем его как нового трастед юзера 
+			// we had a user in a chat before bot has been added
+			// so we will add a user as trusted user
 			isTrustedUser = true
-			log.Println("We have a message from user who is not in map. Probably he or she was in the chat before the bot Let's update the user as trusted")
-			log.Printf("add to chat %s new userid %s", update.Message.Chat.ID, update.Message.From.ID)
+			log.Printf("We have a message from user who is not in map. Let's add the user as trusted")
+			log.Printf("add to chat %d new userid %d", update.Message.Chat.ID, update.Message.From.ID)
 			result, err := ignatDB.Exec(addTrustedQuery, update.Message.Chat.ID, update.Message.From.ID)
 			if err != nil {
 				log.Fatal(err)
 			}
+			rowsAffected, _ = result.RowsAffected()
 
 			if mapOfAllUsersInDatabase[update.Message.Chat.ID] == nil{
 				mapOfAllUsersInDatabase[update.Message.Chat.ID] = make(map[int]bool)
 			}
 			mapOfAllUsersInDatabase[update.Message.Chat.ID][update.Message.From.ID] = isTrustedUser
 
-			log.Println("theoretically new user added as trusted")
-			log.Println(result.RowsAffected())  // количество обновленных строк
+			log.Printf("theoretically new user added as trusted. amount of affected rows is %s", rowsAffected)
 			log.Println(mapOfAllUsersInDatabase)
 		}
 
@@ -189,29 +195,26 @@ func main() {
 				msg.ReplyToMessageID = update.Message.MessageID
 				bot.Send(msg)
 
-				log.Println("we have a new user. check its id user in the db")
-				// проверка, есть ли юзер в бд
-				log.Printf("check in map finished. id is %s result is %s", newUserId.ID, isTrustedUser)
-				log.Printf("check in map finished. result is %s", &isTrustedUser)
+				log.Printf("we have a new user. Do check if userid is in the db")
+				log.Printf("Before isTrustedUser = %t, isExist = %t", isTrustedUser, isExist)
 
-				log.Printf("before isExist = %s", isExist)
 				isTrustedUser, isExist = mapOfAllUsersInDatabase[update.Message.Chat.ID][newUserId.ID]
-// потенциальная ошибка, будет false и ошибка записи в бд, если юзер уже есть, но антраст. поправил.
-				log.Printf("after isExist = %s", isExist)
+
+				log.Printf("After isTrustedUser = %t, isExist = %t", isTrustedUser, isExist)
 				if isExist == false && isTrustedUser == false{
-					log.Printf("add to chat %s new userid %s", update.Message.Chat.ID, newUserId.ID)
+					log.Printf("add to chat %d new userid %d", update.Message.Chat.ID, newUserId.ID)
 					result, err := ignatDB.Exec(addUntrustedQuery, update.Message.Chat.ID, newUserId.ID)
 					if err != nil {
 						log.Fatal(err)
 					}
+					rowsAffected, _ = result.RowsAffected()
 
 					if mapOfAllUsersInDatabase[update.Message.Chat.ID] == nil{
 						mapOfAllUsersInDatabase[update.Message.Chat.ID] = make(map[int]bool)
 					}
 					mapOfAllUsersInDatabase[update.Message.Chat.ID][newUserId.ID] = isTrustedUser
 
-					log.Println("theoretically new user added as untrusted")
-					log.Println(result.RowsAffected())  // количество обновленных строк
+					log.Printf("theoretically new user added as untrusted. amount of affected rows is %d", rowsAffected)
 					log.Println(mapOfAllUsersInDatabase)
 
 				}
