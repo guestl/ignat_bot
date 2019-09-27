@@ -4,6 +4,7 @@ import (
     "github.com/go-telegram-bot-api/telegram-bot-api"
     "log"
     "os"
+    "time"
     "encoding/json"
 	"database/sql"
 	 _ "github.com/mattn/go-sqlite3"
@@ -53,10 +54,11 @@ func main() {
 	defer ignatDB.Close()
 
 	//isTrustedQuery := "select is_trusted from ignated_chat_users where chat_id = $1 and user_id = $2"
-	var isTrustedUser bool
+	var isTrustedUser, isExist bool
 	var isLinkInMessage bool = false
 
-	addUntrustedQuery := "insert into ignated_chat_users (chat_id, user_id) values ($1, $2)"
+	addUntrustedQuery := "insert into ignated_chat_users (chat_id, user_id, is_trusted) values ($1, $2, 1)"
+	addTrustedQuery := "insert into ignated_chat_users (chat_id, user_id) values ($1, $2)"
 	updateTrustedQuery := "update ignated_chat_users set is_trusted = true where chat_id = $1 and user_id = $2"	
 	getUsersQuery := "select chat_id, user_id, is_trusted from ignated_chat_users"
 
@@ -77,7 +79,7 @@ func main() {
 			log.Println(err)
 			continue
 		}
-		log.Println(chatId, userId,  isTrustedUser)
+//		log.Println(chatId, userId,  isTrustedUser)
 		if mapOfAllUsersInDatabase[chatId] == nil{
 			mapOfAllUsersInDatabase[chatId] = make(map[int]bool)
 		}
@@ -93,6 +95,7 @@ func main() {
 
 		log.Printf("from [%s] was message.Text: %s", update.Message.From.UserName, update.Message.Text)
 		log.Printf("from [%s] was message.Caption: %s", update.Message.From.UserName, update.Message.Caption)
+		log.Printf("from [%s] was message: %s", update.Message.From.UserName, update.Message)
 //		log.Printf("from [%s] was message: %s", update.Message.From.UserName, update.Message.Entities)
 
 //		if update.Message.IsCommand() {
@@ -113,9 +116,9 @@ func main() {
 //		}
 
 		isLinkInMessage = false
-		isTrustedUser = mapOfAllUsersInDatabase[update.Message.Chat.ID][update.Message.From.ID]
+		isTrustedUser, isExist = mapOfAllUsersInDatabase[update.Message.Chat.ID][update.Message.From.ID]
 
-		if isTrustedUser == false {
+		if isExist && isTrustedUser == false {
 			if update.Message.Entities != nil {
 				for _, messageEntity := range *update.Message.Entities {
 						if (messageEntity.IsUrl() || messageEntity.IsTextLink()){
@@ -133,14 +136,14 @@ func main() {
 			}
 
 			if(isLinkInMessage){
-				log.Println("we have a link from untrusted user")
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-				msg.Text = "нельзя ссылку давать"
-				msg.ReplyToMessageID = update.Message.MessageID
-				bot.Send(msg)
+				log.Printf("we have a link from untrusted user %s %s %s", update.Message.From.FirstName, update.Message.From.LastName, update.Message.From.UserName)
+				bot.DeleteMessage(tgbotapi.DeleteMessageConfig{update.Message.Chat.ID, update.Message.MessageID})
+				log.Printf("message with link from %s was deleted ", update.Message.From.ID)
+				bot.KickChatMember(tgbotapi.KickChatMemberConfig{tgbotapi.ChatMemberConfig{update.Message.Chat.ID, "", "", update.Message.From.ID}, time.Now().Unix() + 45})  
+
 			} else{
 				isTrustedUser = true
-				log.Println("No link from untrusted user. Let's update the user as trusted")
+				log.Println("We have a message with no link from untrusted user. Let's update the user as trusted")
 				log.Printf("update in chat %s userid %s", update.Message.Chat.ID, update.Message.From.ID)
 				result, err := ignatDB.Exec(updateTrustedQuery, update.Message.Chat.ID, update.Message.From.ID)
 				if err != nil {
@@ -158,6 +161,25 @@ func main() {
 
 			}
 
+		}else if isExist == false && update.Message.NewChatMembers ==nil {
+			// ситуация, когда пользователь был в чате ДО того, как там появился бот
+			// добавляем его как нового трастед юзера 
+			isTrustedUser = true
+			log.Println("We have a message from user who is not in map. Probably he or she was in the chat before the bot Let's update the user as trusted")
+			log.Printf("add to chat %s new userid %s", update.Message.Chat.ID, update.Message.From.ID)
+			result, err := ignatDB.Exec(addTrustedQuery, update.Message.Chat.ID, update.Message.From.ID)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if mapOfAllUsersInDatabase[update.Message.Chat.ID] == nil{
+				mapOfAllUsersInDatabase[update.Message.Chat.ID] = make(map[int]bool)
+			}
+			mapOfAllUsersInDatabase[update.Message.Chat.ID][update.Message.From.ID] = isTrustedUser
+
+			log.Println("theoretically new user added as trusted")
+			log.Println(result.RowsAffected())  // количество обновленных строк
+			log.Println(mapOfAllUsersInDatabase)
 		}
 
 		if update.Message.NewChatMembers !=nil {
@@ -169,11 +191,14 @@ func main() {
 
 				log.Println("we have a new user. check its id user in the db")
 				// проверка, есть ли юзер в бд
-				isTrustedUser = mapOfAllUsersInDatabase[update.Message.Chat.ID][newUserId.ID]
 				log.Printf("check in map finished. id is %s result is %s", newUserId.ID, isTrustedUser)
 				log.Printf("check in map finished. result is %s", &isTrustedUser)
-// потенциальная ошибка, будет false и ошибка записи в бд, если юзер уже есть, но антраст. пофиксить.
-				if isTrustedUser == false{
+
+				log.Printf("before isExist = %s", isExist)
+				isTrustedUser, isExist = mapOfAllUsersInDatabase[update.Message.Chat.ID][newUserId.ID]
+// потенциальная ошибка, будет false и ошибка записи в бд, если юзер уже есть, но антраст. поправил.
+				log.Printf("after isExist = %s", isExist)
+				if isExist == false && isTrustedUser == false{
 					log.Printf("add to chat %s new userid %s", update.Message.Chat.ID, newUserId.ID)
 					result, err := ignatDB.Exec(addUntrustedQuery, update.Message.Chat.ID, newUserId.ID)
 					if err != nil {
@@ -185,12 +210,11 @@ func main() {
 					}
 					mapOfAllUsersInDatabase[update.Message.Chat.ID][newUserId.ID] = isTrustedUser
 
-					log.Println("theoretically new user added")
+					log.Println("theoretically new user added as untrusted")
 					log.Println(result.RowsAffected())  // количество обновленных строк
 					log.Println(mapOfAllUsersInDatabase)
 
 				}
-				log.Println("check finished")
 			}
 		}
 	}
