@@ -8,6 +8,7 @@ import (
     "encoding/json"
 	"database/sql"
 	 _ "github.com/mattn/go-sqlite3"
+	 "path/filepath"
 )
 
 type Config struct {
@@ -20,12 +21,19 @@ func main() {
 	const configJSONFileName string = "config.json" 
 	const logOutputFileName string = "ignat_logfile.log"
 	const cooldowndForBannedUser int64 = 45
-	const connectionString  string = "./db/ignat_db.db"
+	const databaseFileName  string = "/db/ignat_db.db"
 	const databaseDriverName string = "sqlite3"
+
+
+	appAbsoluteDirName, err := filepath.Abs(filepath.Dir(os.Args[0])) 
+	    if err != nil { 
+	      log.Fatal(err) 
+	    } 
+	appAbsoluteDirName = appAbsoluteDirName + "/"
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	LogOutputFile, err := os.OpenFile(logOutputFileName, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666) 
+	LogOutputFile, err := os.OpenFile(appAbsoluteDirName + logOutputFileName, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666) 
 	    if err != nil { 
 	    log.Fatalf("error opening file: %v", err) 
 	    }
@@ -35,7 +43,7 @@ func main() {
 	log.SetOutput(LogOutputFile) 
 
 
-    configFile, _ := os.Open(configJSONFileName)
+    configFile, _ := os.Open(appAbsoluteDirName + configJSONFileName)
     decoder := json.NewDecoder(configFile)
     configuration := Config{}
     err = decoder.Decode(&configuration)
@@ -55,7 +63,7 @@ func main() {
 	updateFromBot := tgbotapi.NewUpdate(0)
 	updateFromBot.Timeout = botTimeOutValue
 
-	ignatDB, err := sql.Open(databaseDriverName, connectionString)
+	ignatDB, err := sql.Open(databaseDriverName, appAbsoluteDirName + databaseFileName)
 	if err != nil {
 		log.Fatal(err)
 	}
