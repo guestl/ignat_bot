@@ -20,6 +20,8 @@ func main() {
 	const configJSONFileName string = "config.json" 
 	const logOutputFileName string = "ignat_logfile.log"
 	const cooldowndForBannedUser int64 = 45
+	const connectionString  string = "./db/ignat_db.db"
+	const databaseDriverName string = "sqlite3"
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
@@ -53,8 +55,7 @@ func main() {
 	updateFromBot := tgbotapi.NewUpdate(0)
 	updateFromBot.Timeout = botTimeOutValue
 
-	connectionString := "./db/ignat_db.db"
-	ignatDB, err := sql.Open("sqlite3", connectionString)
+	ignatDB, err := sql.Open(databaseDriverName, connectionString)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -201,7 +202,7 @@ func main() {
 				isTrustedUser, isExist = mapOfAllUsersInDatabase[update.Message.Chat.ID][newUserId.ID]
 
 				log.Printf("After isTrustedUser = %t, isExist = %t", isTrustedUser, isExist)
-				if isExist == false && isTrustedUser == false{
+				if isExist == false{
 					log.Printf("add to chat %d new userid %d", update.Message.Chat.ID, newUserId.ID)
 					result, err := ignatDB.Exec(addUntrustedQuery, update.Message.Chat.ID, newUserId.ID)
 					if err != nil {
