@@ -190,10 +190,10 @@ func main() {
 
 		if update.Message.NewChatMembers !=nil {
 			for _, newUserId := range *update.Message.NewChatMembers {
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-				msg.Text = "привет, кремлебот, " + newUserId.FirstName 
-				msg.ReplyToMessageID = update.Message.MessageID
-				bot.Send(msg)
+//				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+//				msg.Text = "привет, кремлебот, " + newUserId.FirstName 
+//				msg.ReplyToMessageID = update.Message.MessageID
+//				bot.Send(msg)
 
 				log.Printf("we have a new user. Do check if userid is in the db")
 				log.Printf("Before isTrustedUser = %t, isExist = %t", isTrustedUser, isExist)
