@@ -44,3 +44,5 @@ src/sftp-config.json
 src/webhook curl.txt
 db/sftp-config.json
 db/ignat_db.db
+ignat_bot.service
+sftp-config.json

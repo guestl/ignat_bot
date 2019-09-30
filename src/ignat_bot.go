@@ -77,6 +77,7 @@ func main() {
 	addTrustedQuery := "insert into ignated_chat_users (chat_id, user_id) values ($1, $2)"
 	updateTrustedQuery := "update ignated_chat_users set is_trusted = true where chat_id = $1 and user_id = $2"	
 	getUsersQuery := "select chat_id, user_id, is_trusted from ignated_chat_users"
+	deleteSpammerQuery := "delete from ignated_chat_users where chat_id = $1 and user_id = $2"
 
 	updates, err := bot.GetUpdatesChan(updateFromBot)
 
@@ -89,6 +90,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer allUsersRows.Close()
+
 	for allUsersRows.Next(){
 		err = allUsersRows.Scan(&chatId, &userId, &isTrustedUser)
 		if err != nil {
@@ -108,8 +110,8 @@ func main() {
 			continue
 		}
 
-		log.Printf("from [%s] was message.Text: %s", update.Message.From.UserName, update.Message.Text)
-		log.Printf("from [%s] was message.Caption: %s", update.Message.From.UserName, update.Message.Caption)
+		log.Printf("from [%s][%d] was message.Text: %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
+		log.Printf("from [%s][%d] was message.Caption: %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Caption)
 
 //		if update.Message.IsCommand() {
 //			switch update.Message.Command() {
@@ -156,6 +158,16 @@ func main() {
 				log.Printf("message with link from %d was deleted ", update.Message.From.ID)
 				bot.KickChatMember(tgbotapi.KickChatMemberConfig{tgbotapi.ChatMemberConfig{update.Message.Chat.ID, "", "", update.Message.From.ID}, time.Now().Unix() + cooldowndForBannedUser})  
 
+				result, err := ignatDB.Exec(deleteSpammerQuery, update.Message.Chat.ID, update.Message.From.ID)
+				if err != nil {
+					log.Fatal(err)
+				}
+				rowsAffected, _ = result.RowsAffected()
+				log.Printf("removed spammer from database. amount of affected rows is %d ", rowsAffected)
+				delete(mapOfAllUsersInDatabase[update.Message.Chat.ID], update.Message.From.ID)
+				log.Println(mapOfAllUsersInDatabase)
+
+
 			} else{
 				isTrustedUser = true
 				log.Printf("We have a message with no link from untrusted user. Let's update the user as trusted")
@@ -171,7 +183,7 @@ func main() {
 				}
 				mapOfAllUsersInDatabase[update.Message.Chat.ID][update.Message.From.ID] = isTrustedUser
 
-				log.Printf("theoretically user updated. amount of affected rows is ", rowsAffected)
+				log.Printf("theoretically user updated. amount of affected rows is %d", rowsAffected)
 				log.Println(mapOfAllUsersInDatabase)
 
 			}
@@ -193,7 +205,7 @@ func main() {
 			}
 			mapOfAllUsersInDatabase[update.Message.Chat.ID][update.Message.From.ID] = isTrustedUser
 
-			log.Printf("theoretically new user added as trusted. amount of affected rows is %s", rowsAffected)
+			log.Printf("theoretically new user added as trusted. amount of affected rows is %d", rowsAffected)
 			log.Println(mapOfAllUsersInDatabase)
 		}
 
