@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	 _ "github.com/mattn/go-sqlite3"
 	 "path/filepath"
+	 "unicode"
 )
 
 type Config struct {
@@ -112,6 +113,8 @@ func main() {
 
 		log.Printf("from [%s][%d] was message.Text: %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
 		log.Printf("from [%s][%d] was message.Caption: %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Caption)
+		log.Printf("from [%s][%d] was update.CallbackQuery: %s", update.Message.From.UserName, update.Message.From.ID, update.CallbackQuery)
+		log.Printf("from [%s][%d] was update.InlineQuery: %s", update.Message.From.UserName, update.Message.From.ID, update.InlineQuery)
 
 //		if update.Message.IsCommand() {
 //			switch update.Message.Command() {
@@ -215,7 +218,17 @@ func main() {
 //				msg.Text = "привет, кремлебот, " + newUserId.FirstName 
 //				msg.ReplyToMessageID = update.Message.MessageID
 //				bot.Send(msg)
-
+				log.Printf("we have a new user. Let's check for chineese symbols")
+				var strForCheck = ""
+				strForCheck = newUserId.FirstName + newUserId.LastName + newUserId.UserName
+				for _, charValue := range strForCheck {
+					if unicode.Is(unicode.Han, charValue) {
+				    	log.Printf("%s has a Chinese character. Removed.", string(strForCheck))
+						bot.KickChatMember(tgbotapi.KickChatMemberConfig{tgbotapi.ChatMemberConfig{update.Message.Chat.ID, "", "", update.Message.From.ID}, time.Now().Unix() + cooldowndForBannedUser})  
+						break
+				    } 
+				}
+				
 				log.Printf("we have a new user. Do check if userid is in the db")
 				log.Printf("Before isTrustedUser = %t, isExist = %t", isTrustedUser, isExist)
 
@@ -238,7 +251,7 @@ func main() {
 					log.Printf("theoretically new user added as untrusted. amount of affected rows is %d", rowsAffected)
 					log.Println(mapOfAllUsersInDatabase)
 
-				}
+					}				
 			}
 		}
 	}
